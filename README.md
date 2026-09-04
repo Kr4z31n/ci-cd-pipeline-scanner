@@ -29,8 +29,8 @@ Five minutes, no API key, no network beyond the two `git clone`s.
 **Linux / macOS**
 
 ```bash
-git clone <this-repo-url> supplytrace
-cd supplytrace
+git clone https://github.com/Kr4z31n/ci-cd-pipeline-scanner
+cd ci-cd-pipeline-scanner
 
 python -m venv .venv
 source .venv/bin/activate
@@ -41,8 +41,8 @@ pip install -e ".[dev]"
 **Windows (PowerShell)**
 
 ```powershell
-git clone <this-repo-url> supplytrace
-cd supplytrace
+git clone https://github.com/Kr4z31n/ci-cd-pipeline-scanner
+cd ci-cd-pipeline-scanner
 
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
@@ -72,7 +72,7 @@ reproducing the actual March 2025 `tj-actions/changed-files` incident.
 ```bash
 cd ..
 git clone https://github.com/step-security/github-actions-goat.git
-cd supplytrace
+cd ci-cd-pipeline-scanner
 ```
 
 > Clone it **outside** the tool's directory so the scanner doesn't analyse
@@ -697,7 +697,7 @@ CLIs stay separate: `supplytrace` keeps its original three commands untouched.
 # Layout
 
 ```
-supplytrace/
+ci-cd-pipeline-scanner
   analyzers/          Git history analysis
   models/             commits, files, evidence, signals
   core/               hardened git runner, config, errors
