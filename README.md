@@ -1,4 +1,4 @@
-# SupplyTrace
+# ci-cd-pipeline-scanner
 
 Find **software supply chain attacks** — in a repository's Git history, and in
 its GitHub Actions CI/CD pipeline.
@@ -301,7 +301,7 @@ Output lands in its own section, labelled interpretation rather than evidence.
                     │    taint.py       secret value flow      │
                     └───────────────────┬──────────────────────┘
                                         ▼
- git history  ────►  rules/  (11 rules)  ────►  Finding  ────┐
+ git history  ────►  rules/  (11 rules)  ───►  Finding  ────┐
    (reuses            each cites file:line + verbatim snippet │
   GitAnalyzer)                                               │
                                                              ▼
@@ -666,7 +666,7 @@ ceiling — by design, not by omission.
 
 Git treats every file as plain text. It has no idea that
 `.github/workflows/build.yml` controls how software is built while `README.md`
-controls nothing. So SupplyTrace labels every changed file by **role**:
+controls nothing. So ci-cd-pipeline-scanner labels every changed file by **role**:
 
 | File | Role |
 |---|---|
@@ -713,3 +713,5 @@ cicd_detector/        entry point for `python -m cicd_detector`
 examples/             build_demo.py, build_cicd_demo.py
 tests/
 ```
+
+
