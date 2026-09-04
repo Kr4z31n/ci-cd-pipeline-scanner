@@ -25,7 +25,12 @@ from supplytrace.cicd.evidence.models import Severity
 from supplytrace.cicd.graph.builder import build_graph
 from supplytrace.cicd.graph.correlation import find_attack_paths
 from supplytrace.cicd.graph.export import export_all
-from supplytrace.cicd.llm.gemini import CorrelationResult, GeminiProvider, correlate
+from supplytrace.cicd.llm.gemini import (
+    DEFAULT_MODEL,
+    CorrelationResult,
+    GeminiProvider,
+    correlate,
+)
 from supplytrace.cicd.reporting import json_report, text
 from supplytrace.cicd.rules.history import collect_workflow_history
 from supplytrace.core.config import AnalysisConfig
@@ -92,8 +97,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Skip the LLM correlation step entirely. Everything else is unchanged.",
     )
     scan.add_argument(
-        "--model", default=None,
-        help="Gemini model to use (default: %(default)s).",
+        "--model",
+        default=None,
+        # Left as None so the provider owns the default; the help text names it
+        # explicitly rather than advertising "default: None" to the reader.
+        help=f"Gemini model to use (default: {DEFAULT_MODEL}).",
     )
     scan.add_argument(
         "--format", choices=("text", "json", "markdown"), default="text",
