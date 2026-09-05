@@ -335,8 +335,9 @@ class ParsedWorkflow:
     def line_of_source(self, needle: str, default: int = 0) -> int:
         """First line in the raw source containing ``needle``.
 
-        Used where the YAML tree cannot give a position -- for example one line
-        inside a multi-line ``run:`` block.
+        Prefer :meth:`line_of_source_from` wherever the caller knows roughly
+        where to look: this searches the whole file and returns the *first*
+        match, which is wrong whenever the same text occurs twice.
         """
 
         if not needle or not self.source:
@@ -345,6 +346,24 @@ class ParsedWorkflow:
             if needle in line:
                 return number
         return default
+
+    def line_of_source_from(self, needle: str, start: int, span: int = 40) -> int:
+        """First line containing ``needle`` at or after ``start``, else 0.
+
+        Bounded on purpose. A whole-file search returns the first textual match
+        anywhere in the workflow, so when the same expression appears in two
+        steps every finding lands on the first one and sends the reader to the
+        wrong job.
+        """
+
+        if not needle or not self.source or start < 1:
+            return 0
+        lines = self.source.splitlines()
+        last = min(start + span, len(lines))
+        for number in range(start, last + 1):
+            if needle in lines[number - 1]:
+                return number
+        return 0
 
 
 # -- coercion helpers ----------------------------------------------------------

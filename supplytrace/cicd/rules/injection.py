@@ -149,19 +149,21 @@ class ScriptInjectionRule(Rule):
 
     @staticmethod
     def _line_in_run(workflow, step, ref) -> int:
-        """Best line for an expression inside a multi-line run block.
+        """Exact file line for an expression inside a ``run:`` block.
 
-        The parser knows where the block starts; the expression's own offset
-        within the block gives the rest. The source is searched as a fallback
-        for the cases where the block's reported start and its first content
-        line differ (a `run: |` header, for example).
+        The parser records where the block's text begins, and the expression
+        carries its own offset within that text, so the two compose into the
+        real line.
+
+        Searching the source for the expression instead -- which this used to
+        do -- returns the *first* textual match in the file. When the same
+        expression appears in two steps (``${{ github.event.comment.body }}``
+        in both a `with:` and a later `run:`), every finding was reported at
+        the first occurrence, sending a reviewer to the wrong job entirely.
         """
 
-        candidate = step.location.line + ref.line_offset
-        source_line = workflow.line_of_source(ref.raw, 0)
-        if source_line:
-            return source_line
-        return candidate or step.location.line
+        line = step.line_for_run_offset(ref.line_offset)
+        return line or step.location.line
 
     # -- action inputs ---------------------------------------------------------
 
@@ -179,7 +181,12 @@ class ScriptInjectionRule(Rule):
             return
 
         for ref in refs:
-            line = workflow.line_of_source(ref.raw, step.location.line)
+            # Bounded to this step, so a duplicate expression elsewhere in the
+            # file cannot claim the location.
+            line = (
+                workflow.line_of_source_from(ref.raw, step.location.line)
+                or step.location.line
+            )
             severity, confidence = self._grade(ref.trust, triggers)
             # Reaching an interpreter through an action input is the same class
             # of problem as `run:`, so it keeps the same severity.

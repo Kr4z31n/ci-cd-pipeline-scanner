@@ -65,7 +65,10 @@ class SuspiciousDownloadRule(Rule):
         self, context: ScanContext, workflow, job, step, hits: list[ShellHit]
     ) -> Iterable[Finding]:
         for hit in [h for h in hits if h.behaviour is ShellBehaviour.PIPE_TO_SHELL]:
-            line = workflow.line_of_source(hit.text[:60], step.location.line)
+            # The hit carries its offset within the run block, which composes
+            # into an exact line. Searching the source for the command text
+            # would return the first match anywhere in the file.
+            line = step.line_for_run_offset(hit.line_offset)
             url = hit.detail
             dynamic = self._dynamic_parts(hit.text)
             known_host = bool(url) and is_common_ci_host(url)
@@ -155,8 +158,8 @@ class SuspiciousDownloadRule(Rule):
         url = download.detail
         known_host = bool(url) and is_common_ci_host(url)
         dynamic = self._dynamic_parts(download.text)
-        download_line = workflow.line_of_source(download.text[:60], step.location.line)
-        execute_line = workflow.line_of_source(execute.text[:60], step.location.line)
+        download_line = step.line_for_run_offset(download.line_offset)
+        execute_line = step.line_for_run_offset(execute.line_offset)
 
         severity, confidence = self._grade(
             known_host=known_host,
