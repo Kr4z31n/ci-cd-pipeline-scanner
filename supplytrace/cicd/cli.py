@@ -298,9 +298,12 @@ def command_graph(args: argparse.Namespace, out: TextIO) -> int:
         )
     for fmt, path in written.items():
         print(f"  {fmt:9} {path}", file=out)
+    svg = Path(args.output_dir) / "attack_graph.svg"
     print(
-        "\nRender the diagram with:\n"
-        f"  dot -Tsvg {Path(args.output_dir) / 'attack_graph.dot'} -o attack_graph.svg",
+        f"\nOpen {svg} in a browser — the attack paths are drawn there.\n"
+        "It is rendered directly and needs no Graphviz. For a full node-level\n"
+        "layout instead, install Graphviz and run:\n"
+        f"  dot -Tsvg {Path(args.output_dir) / 'attack_graph.dot'} -o full.svg",
         file=out,
     )
     return EXIT_OK

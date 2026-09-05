@@ -9,5 +9,7 @@ analysis: repository metadata, branches, commits, authors and per-commit file
 changes.
 """
 
-__version__ = "0.1.0"
+#: Keep in step with `version` in pyproject.toml. The CLI reports this, so a
+#: drift here means `--version` disagrees with the installed package.
+__version__ = "0.2.0"
 __all__ = ["__version__"]

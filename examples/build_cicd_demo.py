@@ -27,7 +27,9 @@ Nothing here is executed by the scanner -- the files are only ever read.
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
+import stat
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -384,6 +386,29 @@ def _history() -> list[Commit]:
     ]
 
 
+def _force_remove(path: Path) -> None:
+    """Delete a tree that contains a Git repository.
+
+    Git marks everything under ``.git/objects`` read-only, and on Windows a
+    read-only file cannot be unlinked -- ``shutil.rmtree`` raises
+    ``PermissionError: [WinError 5] Access is denied``. Worse, it raises
+    part-way through, leaving a half-deleted directory that is no longer a
+    valid repository, so the next scan silently runs with no history.
+
+    The handler clears the read-only bit and retries the one operation that
+    failed. ``onexc`` replaced ``onerror`` in Python 3.12.
+    """
+
+    def _clear_readonly(func, target, _exc):
+        os.chmod(target, stat.S_IWRITE)
+        func(target)
+
+    if sys.version_info >= (3, 12):
+        shutil.rmtree(path, onexc=_clear_readonly)
+    else:  # pragma: no cover - depends on interpreter
+        shutil.rmtree(path, onerror=lambda f, t, _e: _clear_readonly(f, t, None))
+
+
 def build(destination: Path, *, force: bool = False) -> Path:
     """Create the demo repository at ``destination``."""
 
@@ -392,7 +417,7 @@ def build(destination: Path, *, force: bool = False) -> Path:
             raise SystemExit(
                 f"{destination} already exists. Pass --force to replace it."
             )
-        shutil.rmtree(destination)
+        _force_remove(destination)
     destination.mkdir(parents=True)
 
     _run(["git", "init", "--quiet", "--initial-branch=main"], destination)

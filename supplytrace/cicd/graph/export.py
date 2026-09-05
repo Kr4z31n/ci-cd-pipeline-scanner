@@ -210,6 +210,186 @@ def _escape(text: str) -> str:
     return str(text).replace("\\", "\\\\").replace('"', '\\"')
 
 
+# -- SVG -----------------------------------------------------------------------
+#
+# Written by hand rather than shelled out to Graphviz. `dot` is not installed on
+# most machines, and a diagram nobody can render is not a diagram. This keeps
+# the picture a first-class output with no system dependency.
+
+#: Columns, left to right. This is the attack narrative's own order, so a
+#: reader follows the diagram the same way they read the path text.
+_SVG_COLUMNS: tuple[NodeRole, ...] = (
+    NodeRole.ENTRY_POINT,
+    NodeRole.CONTEXT,
+    NodeRole.EXECUTION,
+    NodeRole.PRIVILEGE,
+    NodeRole.ASSET,
+    NodeRole.IMPACT,
+)
+
+_SVG_FILL: dict[NodeRole, str] = {
+    NodeRole.ENTRY_POINT: "#d94801",
+    NodeRole.CONTEXT: "#8a9aa3",
+    NodeRole.EXECUTION: "#1f6f8b",
+    NodeRole.PRIVILEGE: "#6b4c9a",
+    NodeRole.ASSET: "#2f7d4f",
+    NodeRole.IMPACT: "#a11d33",
+}
+
+
+def _xml(text: str) -> str:
+    return (
+        str(text)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
+
+
+def write_svg(
+    graph: AttackGraph,
+    destination: str | Path,
+    paths: list[AttackPath] | None = None,
+    *,
+    only_paths: bool = True,
+) -> Path:
+    """Render the graph as a standalone SVG.
+
+    By default only the nodes lying on an attack path are drawn. A full export
+    of a real repository runs to hundreds of nodes and thousands of edges,
+    which renders as a hairball that communicates nothing; the paths are the
+    part worth looking at.
+    """
+
+    paths = paths or []
+    on_path: set[str] = {n.id for p in paths for n in p.nodes}
+    path_edges: set[tuple[str, str]] = set()
+    for path in paths:
+        ids = [n.id for n in path.nodes]
+        path_edges.update(zip(ids, ids[1:]))
+
+    if only_paths and on_path:
+        node_ids = on_path
+    else:
+        node_ids = set(graph.nodes)
+
+    nodes = [graph.nodes[i] for i in node_ids if i in graph.nodes]
+    edges = [
+        e for e in graph.edges if e.source in node_ids and e.target in node_ids
+    ]
+
+    columns: dict[NodeRole, list] = {role: [] for role in _SVG_COLUMNS}
+    for node in sorted(nodes, key=lambda n: n.label):
+        columns.setdefault(node.role, []).append(node)
+    active = [role for role in _SVG_COLUMNS if columns.get(role)]
+
+    box_w, box_h = 210, 52
+    gap_x, gap_y = 96, 26
+    pad = 34
+    header = 58
+
+    placed: dict[str, tuple[float, float]] = {}
+    for column_index, role in enumerate(active):
+        members = columns[role]
+        x = pad + column_index * (box_w + gap_x)
+        for row, node in enumerate(members):
+            y = header + pad + row * (box_h + gap_y)
+            placed[node.id] = (x, y)
+
+    tallest = max((len(columns[r]) for r in active), default=1)
+    width = pad * 2 + len(active) * box_w + max(len(active) - 1, 0) * gap_x
+    height = header + pad * 2 + tallest * box_h + max(tallest - 1, 0) * gap_y
+
+    out: list[str] = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" '
+        f'height="{height}" viewBox="0 0 {width} {height}" '
+        f'font-family="ui-sans-serif, system-ui, sans-serif">',
+        f'<rect width="{width}" height="{height}" fill="#ffffff"/>',
+        '<defs>',
+        '<marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" '
+        'markerHeight="7" orient="auto-start-reverse">'
+        '<path d="M0,0 L10,5 L0,10 z" fill="#9aa7ad"/></marker>',
+        '<marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" '
+        'markerHeight="8" orient="auto-start-reverse">'
+        '<path d="M0,0 L10,5 L0,10 z" fill="#a11d33"/></marker>',
+        '</defs>',
+        f'<text x="{pad}" y="30" font-size="16" font-weight="600" fill="#10171c">'
+        f'Attack graph — {len(paths)} path(s), {len(nodes)} nodes shown</text>',
+        f'<text x="{pad}" y="47" font-size="11" fill="#6b7a82">'
+        f'Routes that exist in the configuration. Not evidence that any was taken.'
+        f'</text>',
+    ]
+
+    # Column headings.
+    for column_index, role in enumerate(active):
+        x = pad + column_index * (box_w + gap_x)
+        out.append(
+            f'<text x="{x}" y="{header + 12}" font-size="10" font-weight="600" '
+            f'letter-spacing="1.4" fill="{_SVG_FILL.get(role, "#8a9aa3")}">'
+            f'{_xml(role.value.replace("_", " "))}</text>'
+        )
+
+    # Edges first, so boxes sit on top of the lines.
+    for edge in edges:
+        if edge.source not in placed or edge.target not in placed:
+            continue
+        sx, sy = placed[edge.source]
+        tx, ty = placed[edge.target]
+        x1, y1 = sx + box_w, sy + box_h / 2
+        x2, y2 = tx, ty + box_h / 2
+        highlighted = (edge.source, edge.target) in path_edges
+        mid = (x1 + x2) / 2
+        out.append(
+            f'<path d="M{x1:.0f},{y1:.0f} C{mid:.0f},{y1:.0f} {mid:.0f},{y2:.0f} '
+            f'{x2:.0f},{y2:.0f}" fill="none" '
+            f'stroke="{"#a11d33" if highlighted else "#c7d0d4"}" '
+            f'stroke-width="{2.0 if highlighted else 1.0}" '
+            f'marker-end="url(#{"ah" if highlighted else "a"})"/>'
+        )
+        if highlighted:
+            out.append(
+                f'<text x="{mid:.0f}" y="{(y1 + y2) / 2 - 5:.0f}" font-size="9" '
+                f'text-anchor="middle" fill="#a11d33">{_xml(edge.type.value)}</text>'
+            )
+
+    # Nodes.
+    for node in nodes:
+        if node.id not in placed:
+            continue
+        x, y = placed[node.id]
+        fill = _SVG_FILL.get(node.role, "#8a9aa3")
+        label = node.label if len(node.label) <= 30 else node.label[:29] + "…"
+        out.append(
+            f'<rect x="{x}" y="{y}" width="{box_w}" height="{box_h}" rx="5" '
+            f'fill="{fill}14" stroke="{fill}" stroke-width="1.5"/>'
+        )
+        out.append(
+            f'<text x="{x + 11}" y="{y + 20}" font-size="12" font-weight="600" '
+            f'fill="#10171c">{_xml(label)}</text>'
+        )
+        detail = node.type.value
+        if node.line:
+            detail += f" · {Path(node.file).name}:{node.line}"
+        out.append(
+            f'<text x="{x + 11}" y="{y + 35}" font-size="9.5" fill="#6b7a82">'
+            f'{_xml(detail[:38])}</text>'
+        )
+        if node.evidence_ids:
+            out.append(
+                f'<text x="{x + 11}" y="{y + 46}" font-size="9" '
+                f'font-family="ui-monospace, monospace" fill="{fill}">'
+                f'{_xml(",".join(node.evidence_ids[:4]))}</text>'
+            )
+
+    out.append("</svg>")
+
+    path = Path(destination)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(out), encoding="utf-8")
+    return path
+
+
 def export_all(
     graph: AttackGraph,
     directory: str | Path,
@@ -220,6 +400,7 @@ def export_all(
     target = Path(directory)
     written = {
         "json": write_json(graph, target / "attack_graph.json", paths),
+        "svg": write_svg(graph, target / "attack_graph.svg", paths),
         "dot": write_dot(graph, target / "attack_graph.dot", paths),
     }
     try:
@@ -231,6 +412,7 @@ def export_all(
 
 
 __all__ = [
+    "write_svg",
     "export_all",
     "graph_to_dict",
     "write_dot",

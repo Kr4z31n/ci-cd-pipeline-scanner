@@ -13,3 +13,13 @@ htmlcov/
 *.db
 reports/
 examples/paylite/
+
+# Scan targets cloned or generated next to (or inside) the repo. The Goat
+# clone is ~25MB with its own .git; committing it would be a mess.
+github-actions-goat/
+demo-repo/
+
+# Demo and smoke-test artefacts.
+demo-output/
+graph/
+attack_graph.*

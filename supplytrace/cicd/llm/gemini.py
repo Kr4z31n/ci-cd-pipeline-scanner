@@ -11,6 +11,7 @@ read from a file, never logged, and never written into a report.
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass, field
 
 from supplytrace.cicd.evidence.collector import ScanResult
@@ -27,7 +28,26 @@ from supplytrace.cicd.llm.schemas import LLMAnalysis, validate_response
 #: Environment variables checked for a key, in order.
 API_KEY_VARIABLES = ("GEMINI_API_KEY", "GOOGLE_API_KEY")
 
-DEFAULT_MODEL = "gemini-2.5-flash"
+#: Default model. A flash tier is deliberate: the correlation task is reading
+#: structured evidence and writing JSON, not reasoning from scratch, and the
+#: free tier serves flash but not pro.
+#:
+#: This is pinned to a concrete version rather than the ``gemini-flash-latest``
+#: alias, which looks tempting but hides two problems: the model behind it can
+#: change the output shape without warning, and an alias under load returns 503
+#: while a specific model still serves. Note the asymmetry with this tool's own
+#: advice about pinning actions -- that rule is about code executing with your
+#: secrets, where a moving reference is a supply-chain risk. Here the model's
+#: output is schema-validated and evidence-checked before anything reaches the
+#: report, so the risk is availability, not integrity.
+#:
+#: When a version is retired the API says so plainly and names its replacement;
+#: that message is surfaced verbatim, and ``--model`` overrides this.
+DEFAULT_MODEL = "gemini-3.6-flash"
+
+#: Transient conditions worth one retry. A 503 mid-demo is a bad reason to lose
+#: the correlation step; a 404 or a bad key is not worth retrying at all.
+_RETRYABLE = ("503", "UNAVAILABLE", "500", "INTERNAL", "429", "RESOURCE_EXHAUSTED")
 
 
 def api_key_from_environment() -> str:
@@ -79,21 +99,37 @@ class GeminiProvider:
 
     def generate(self, prompt: str, *, system: str = "") -> LLMResponse:
         client = self._ensure_client()
-        try:
-            from google.genai import types
+        from google.genai import types
 
-            config = types.GenerateContentConfig(
-                system_instruction=system or None,
-                # The response has to parse as JSON; creativity is not wanted
-                # anywhere in this path.
-                temperature=0.1,
-                response_mime_type="application/json",
-            )
-            response = client.models.generate_content(
-                model=self.model, contents=prompt, config=config
-            )
-        except Exception as exc:  # noqa: BLE001 - SDK raises many types
-            raise LLMError(f"Gemini request failed: {type(exc).__name__}: {exc}") from exc
+        config = types.GenerateContentConfig(
+            system_instruction=system or None,
+            # The response has to parse as JSON; creativity is not wanted
+            # anywhere in this path.
+            temperature=0.1,
+            response_mime_type="application/json",
+        )
+
+        # One retry, and only for conditions that pass on their own. A wrong
+        # key or a retired model fails the same way every time, so retrying
+        # those just doubles the wait before the same message.
+        last: Exception | None = None
+        for attempt in range(2):
+            try:
+                response = client.models.generate_content(
+                    model=self.model, contents=prompt, config=config
+                )
+                break
+            except Exception as exc:  # noqa: BLE001 - SDK raises many types
+                last = exc
+                transient = any(marker in str(exc) for marker in _RETRYABLE)
+                if attempt == 0 and transient:
+                    time.sleep(2.0)
+                    continue
+                raise LLMError(
+                    f"Gemini request failed: {type(exc).__name__}: {exc}"
+                ) from exc
+        else:  # pragma: no cover - the loop always breaks or raises
+            raise LLMError(f"Gemini request failed: {last}")
 
         text = getattr(response, "text", "") or ""
         if not text:
